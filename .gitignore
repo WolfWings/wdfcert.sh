@@ -1,0 +1,12 @@
+# Remnant file used for split header vs body CURL parsing
+headers.txt
+
+# Let's avoid leakage:
+
+# DNS credentials
+config_dns.inc
+
+# Created files
+*.key
+*.csr
+*.crt
