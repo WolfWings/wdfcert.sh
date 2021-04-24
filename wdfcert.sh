@@ -36,6 +36,7 @@ SPINNER="|/-\\"
 
 # Fetched the fist time it's needed
 DIRECTORY=""
+TOSURL="null"
 
 # Used to track Key ID once looked up
 KEYID=""
@@ -216,6 +217,11 @@ cache_directory () {
 
 		DIRECTORY="$(wdfcurl "${CA}")"
 
+		TOSURL="$(
+			echo "${DIRECTORY}" | \
+			jq -r '.meta.termsOfService'
+		)"
+
 		echo 'Done!' > /dev/stderr
 	fi
 }
@@ -366,13 +372,21 @@ check_account () {
 
 	local PAYLOAD="$(printf '{"onlyReturnExisting":true}')"
 
-	printf 'Looking up account %s...' "${1}" > /dev/stderr
+	printf 'Looking up account for key %s...' "${1}" > /dev/stderr
 
 	local OUTPUT="$(send_signed_request "${1}" "${URL}" "${HEADER}" "${PAYLOAD}")"
 
 	if [[ "$(wdfcurl_response_code)" -ge "300" ]]
 	then
 		echo 'Unable to find!' > /dev/stderr
+
+		if [[ "${TOSURL}" != "null" ]]
+		then
+			printf 'The current Terms Of Service can be viewed at:\n\n%s\n\n' "${TOSURL}" > /dev/stderr
+		fi
+
+		echo 'You will most likely need to run the --accept-tos command.' > /dev/stderr
+
 		return 1
 	fi
 
@@ -866,6 +880,11 @@ cat <<- __EOF__
 	        Appends '.key' to the filename.
 	        The keyfile will always be a 384-bit ECDSA key.
 
+	--accept-tos <keyfile> <e-mail>
+	        Accept the latest Terms of Service for the account
+	        identified by <keyfile>. If no such account exists
+	        then one will be created.
+
 	--csr <keyfile> <domain> ... <domain>
 	        Creates a CSR using the requested keyfile and domains.
 	        Appends '.key' and '.csr' to the keyfile as appropriate.
@@ -892,66 +911,57 @@ then
 	usage
 fi
 
+declare -A PARAMETERS
+PARAMETERS["--live"]=1
+PARAMETERS["--key"]=2
+PARAMETERS["--accept-tos"]=3
+PARAMETERS["--csr"]=3
+PARAMETERS["--order"]=3
+PARAMETERS["--txt"]=3
+
 while [[ "$#" -gt "0" ]]
 do
+	if [[ -z "${PARAMETERS[${1}]}" ]]
+	then
+		usage
+	fi
+
+	if [[ "$#" -lt "${PARAMETERS[${1}]}" ]]
+	then
+		printf '\tERROR:\tInsufficient arguments passed to %s\n' "${1}" > /dev/stderr
+		usage
+	fi
+
 	case "${1}" in
 	"--live")
 		CA="https://acme-v02.api.letsencrypt.org/directory"
+		shift
 		;;
 
 	"--key")
-		if [[ "$#" -lt 2 ]]
-		then
-			printf '\tERROR:\tInsufficient arguments passed to %s\n' "${1}" > /dev/stderr
-			usage
-		fi
 		create_key "${2}"
 		shift 2
 		;;
 
+	"--accept-tos")
+		create_account "${2}" "${3}"
+		shift 3
+		;;
+
 	"--csr")
-		if [[ "$#" -lt 3 ]]
-		then
-			printf '\tERROR:\tInsufficient arguments passed to %s\n' "${1}" > /dev/stderr
-			usage
-		fi
 		shift
 		create_csr "${@}"
 		shift 2
 		;;
 
 	"--order")
-		if [[ "$#" -lt 3 ]]
-		then
-			printf '\tERROR:\tInsufficient arguments passed to %s\n' "${1}" > /dev/stderr
-			usage
-		fi
 		certificate_order "${2}" "${3}"
 		shift 3
 		;;
 
 	"--txt")
-		if [[ "$#" -lt 3 ]]
-		then
-			printf '\tERROR:\tInsufficient arguments passed to %s\n' "${1}" > /dev/stderr
-			usage
-		fi
 		update_dns_txt "${2}" "${3}"
 		shift 3
 		;;
-
-	*)
-		usage
-		;;
 	esac
 done
-
-#exit 0
-#create_key account
-#create_csr wolfwings.us wolfwings.us wolfwings.us "*.wolfwings.us"
-#certificate_order account wolfwings.us
-#create_csr wolfwings.com wolfwings.com wolfwings.com "*.wolfwings.com"
-#certificate_order account wolfwings.com
-#update_dns_txt "_acme-challenge.test0007.wolfwings.us" ""
-#create_csr test0007.wolfwings.us test0007.wolfwings.us test0007.wolfwings.us
-#certificate_order account test0007.wolfwings.us
