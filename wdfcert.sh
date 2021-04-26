@@ -277,19 +277,19 @@ create_key () {
 create_csr () {
 	create_key "${1}"
 
-	if [[ -f "${1}.csr" ]]
-	then
-		printf 'CSR %s.csr already exists.\n' "${1}" > /dev/stderr
-		return 0
-	fi
-
 	local FILE="${1}"
 	local SAN="DNS:${2}"
 	while [[ "$#" -gt "2" ]]
 	do
 		shift
-		local SAN="${SAN},DNS:${2}"
+		SAN="${SAN},DNS:${2}"
 	done
+
+	if [[ -f "${FILE}.csr" ]]
+	then
+		printf 'CSR %s.csr already exists.\n' "${FILE}" > /dev/stderr
+		return 0
+	fi
 
 	# Empty 'subject line' as it is unused for newer "domain
 	# verified" certificates, and is not be used to list any
@@ -951,7 +951,7 @@ do
 	"--csr")
 		shift
 		create_csr "${@}"
-		shift 2
+		shift "$#"
 		;;
 
 	"--order")
