@@ -622,7 +622,7 @@ handle_challenge_dns () {
 			echo "${JSON}" | \
 			jq -r '.callback'
 		)"
-		local FINGERPRINT="$(fingerprint account)"
+		local FINGERPRINT="$(fingerprint "${1}")"
 		local DIGEST="$(
 			echo -n "${TOKEN}.${FINGERPRINT}" | \
 			openssl sha256 -binary | \
@@ -692,6 +692,8 @@ handle_challenge_dns () {
 #     fetch the completed certificate with a POST-as-GET request
 #     to the 'certificate' URL provided by the CA.
 certificate_order () {
+	local ACCOUNT="${1}"
+
 	if [[ -f "${2}.crt" ]]
 	then
 		# Fixed timestamp to minimize race conditions
@@ -749,14 +751,14 @@ certificate_order () {
 	done
 	PAYLOAD_ORDER="$(printf '{"identifiers":[%s]}' "${PAYLOAD_ORDER:1}")"
 
-	cache_keyid "${1}"
+	cache_keyid "${ACCOUNT}"
 
 	local LOOP_ORDER
 	for LOOP_ORDER in {1..300}
 	do
 		local HEADER_ORDER="$(printf '{"alg":"ES384","kid":"%s","nonce":"%s","url":"%s"}' "${KEYID}" "$(get_nonce)" "${URL_ORDER}")"
 
-		local OUTPUT_ORDER="$(send_signed_request "${1}" "${URL_ORDER}" "${HEADER_ORDER}" "${PAYLOAD_ORDER}")"
+		local OUTPUT_ORDER="$(send_signed_request "${ACCOUNT}" "${URL_ORDER}" "${HEADER_ORDER}" "${PAYLOAD_ORDER}")"
 
 		# If provided the 'location' header switch to POST-as-GET requests
 		if grep -qPi '^location: +' headers.txt
@@ -790,7 +792,7 @@ certificate_order () {
 
 			for ENTRY in "${AUTHORIZATIONS[@]}"
 			do
-				handle_challenge_dns account "${ENTRY}"
+				handle_challenge_dns "${ACCOUNT}" "${ENTRY}"
 			done
 			;;
 
@@ -810,7 +812,7 @@ certificate_order () {
 
 			local HEADER_FINALIZE="$(printf '{"alg":"ES384","kid":"%s","nonce":"%s","url":"%s"}' "${KEYID}" "$(get_nonce)" "${URL_FINALIZE}")"
 
-			local OUTPUT_FINALIZE="$(send_signed_request "${1}" "${URL_FINALIZE}" "${HEADER_FINALIZE}" "${PAYLOAD_FINALIZE}")"
+			local OUTPUT_FINALIZE="$(send_signed_request "${ACCOUNT}" "${URL_FINALIZE}" "${HEADER_FINALIZE}" "${PAYLOAD_FINALIZE}")"
 
 			echo 'Purging DNS txt records...'
 
@@ -834,7 +836,7 @@ certificate_order () {
 
 			local HEADER_CERTIFICATE="$(printf '{"alg":"ES384","kid":"%s","nonce":"%s","url":"%s"}' "${KEYID}" "$(get_nonce)" "${URL_CERTIFICATE}")"
 
-			local OUTPUT_CERTIFICATE="$(send_signed_request "${1}" "${URL_CERTIFICATE}" "${HEADER_CERTIFICATE}" "")"
+			local OUTPUT_CERTIFICATE="$(send_signed_request "${ACCOUNT}" "${URL_CERTIFICATE}" "${HEADER_CERTIFICATE}" "")"
 
 			if [[ "$(wdfcurl_response_code)" -ne "200" ]]
 			then
@@ -856,7 +858,7 @@ certificate_order () {
 			echo -e "\tERROR\tUnknown status from newOrder endpoint." > /dev/stderr
 			echo "The status of '${STATUS}' was returned, which is not a valid option in RFC 8555, the ACME protocol." > /dev/stderr
 			echo '-=-=-=-=-=-' > /dev/stderr
-			echo "Account Key:     ${1}" > /dev/stderr
+			echo "Account Key:     ${ACCOUNT}" > /dev/stderr
 			echo "Current URL:     ${URL_ORDER}" > /dev/stderr
 			echo "Current Header:  ${HEADER_ORDER}" > /dev/stderr
 			echo "Current Payload: ${PAYLOAD_ORDER}" > /dev/stderr
