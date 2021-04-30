@@ -170,8 +170,6 @@ jwk () {
 		grep '    ' | \
 		tr -d ' :\n\r'
 	)"
-	HALF=$[((${#RAW}-2)/2)]
-	SPLIT=$[${HALF}+2]
 	if [[ "${RAW:0:2}" != "04" ]]
 	then
 		printf '\tERROR:\tOpenSSL did not return "uncompressed" EC key format.\n' > /dev/stderr
@@ -179,6 +177,8 @@ jwk () {
 		exit 1
 	fi
 
+	HALF=$[(${#RAW}/2)-1]
+	SPLIT=$[${HALF}+2]
 	ECX="$(
 		echo -n "${RAW:2:${HALF}}" | \
 		hex2bin | \
