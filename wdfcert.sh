@@ -560,32 +560,12 @@ update_dns_txt () {
 		exit 1
 	fi
 
-	# No errors, so get full list of NS servers for the zone
-	# to scan until each shows the updated TXT record.
+	# No errors, so scan the list of NS servers for the zone
+	# until each shows the updated TXT record.
 
 	local LOOP_TXT
 	for LOOP_TXT in {1..300}
 	do
-		while [[ "${#NAMESERVERS[@]}" -ge "1" ]]
-		do
-			printf '%s TXT record set, %i/%i DNS servers propagated, checking %s... %s\e[0K\r' \
-				"${1}" \
-				"$[${TOTAL}-${#NAMESERVERS[@]}]" \
-				"${TOTAL}" \
-				"${NAMESERVERS[-1]%.}" \
-				"${SPINNER:$[${LOOP_TXT}%4]:1}"
-			DUG="$(dig "@${NAMESERVERS[-1]%.}" "${1}" txt +short)"
-			DUG="${DUG%\"}"
-			DUG="${DUG#\"}"
-
-			if [[ "=${DUG}=" != "=${2}=" ]]
-			then
-				break
-			fi
-
-			unset 'NAMESERVERS[-1]'
-		done
-
 		if [[ "${#NAMESERVERS[@]}" -lt "1" ]]
 		then
 			printf '%s TXT record set, all DNS servers propagated.\e[0K\n' \
@@ -593,7 +573,24 @@ update_dns_txt () {
 			break
 		fi
 
-		sleep 1
+		printf '%s TXT record set, %i/%i DNS servers propagated, checking %s... %s\e[0K\r' \
+			"${1}" \
+			"$[${TOTAL}-${#NAMESERVERS[@]}]" \
+			"${TOTAL}" \
+			"${NAMESERVERS[-1]%.}" \
+			"${SPINNER:$[${LOOP_TXT}%4]:1}"
+
+		DUG="$(dig "@${NAMESERVERS[-1]%.}" "${1}" txt +short)"
+		DUG="${DUG%\"}"
+		DUG="${DUG#\"}"
+
+		if [[ "=${DUG}=" != "=${2}=" ]]
+		then
+			sleep 1
+			continue
+		fi
+
+		unset 'NAMESERVERS[-1]'
 	done
 }
 
@@ -608,64 +605,74 @@ handle_challenge_dns () {
 		jq -r '.status'
 	)"
 
-	if [[ "${STATUS}" -eq "pending" ]]
+	if [[ "${STATUS}" != "pending" ]]
 	then
-		local DOMAIN="$(
-			echo "${JSON}" | \
-			jq -r '.domain'
-		)"
-		local TOKEN="$(
-			echo "${JSON}" | \
-			jq -r '.token'
-		)"
-		local CALLBACK="$(
-			echo "${JSON}" | \
-			jq -r '.callback'
-		)"
-		local FINGERPRINT="$(fingerprint "${1}")"
-		local DIGEST="$(
-			echo -n "${TOKEN}.${FINGERPRINT}" | \
-			openssl sha256 -binary | \
-			base64url
-		)"
-
-		update_dns_txt "_acme-challenge.${DOMAIN}" "${DIGEST}"
-
-		SCRUB_DOMAINS[${DOMAIN}]="."
-
-		cache_keyid "${1}"
-
-		local HEADER="$(printf '{"alg":"ES384","kid":"%s","nonce":"%s","url":"%s"}' "${KEYID}" "$(get_nonce)" "${CALLBACK}")"
-
-		local OUTPUT="$(send_signed_request "${1}" "${CALLBACK}" "${HEADER}" "{}")"
-
-		local LOOP_DNS
-		for LOOP_DNS in {1..300}
-		do
-			echo -e -n "CertAuth: ${SPINNER:$[${LOOP_DNS}%4]:1}\e[0K\r"
-			local OUTPUT_STATUS="$(
-				get_authorization_dns_challenge "${1}" "${2}"
-			)"
-			local STATUS_STATUS="$(
-				echo "${OUTPUT_STATUS}" | \
-				jq -r '.status'
-			)"
-			case "${STATUS_STATUS}" in
-			processing | pending)
-				continue
-				;;
-			valid)
-				echo "CertAuth: Success!"
-				return 0
-				;;
-			invalid | *)
-				echo "CertAuth: Error, invalid validation!" > /dev/stderr
-				hard_abort "${OUTPUT_STATUS}"
-				;;
-			esac
-			sleep 1
-		done
+		return 0
 	fi
+
+	local DOMAIN="$(
+		echo "${JSON}" | \
+		jq -r '.domain'
+	)"
+	local TOKEN="$(
+		echo "${JSON}" | \
+		jq -r '.token'
+	)"
+	local CALLBACK="$(
+		echo "${JSON}" | \
+		jq -r '.callback'
+	)"
+	local FINGERPRINT="$(fingerprint "${1}")"
+	local DIGEST="$(
+		echo -n "${TOKEN}.${FINGERPRINT}" | \
+		openssl sha256 -binary | \
+		base64url
+	)"
+
+	update_dns_txt "_acme-challenge.${DOMAIN}" "${DIGEST}"
+
+	SCRUB_DOMAINS[${DOMAIN}]="."
+
+	cache_keyid "${1}"
+
+	local HEADER="$(printf '{"alg":"ES384","kid":"%s","nonce":"%s","url":"%s"}' "${KEYID}" "$(get_nonce)" "${CALLBACK}")"
+
+	local OUTPUT="$(send_signed_request "${1}" "${CALLBACK}" "${HEADER}" "{}")"
+
+	local LOOP_DNS
+	for LOOP_DNS in {1..300}
+	do
+		echo -e -n "CertAuth: ${SPINNER:$[${LOOP_DNS}%4]:1}\e[0K\r"
+
+		local OUTPUT_STATUS="$(
+			get_authorization_dns_challenge "${1}" "${2}"
+		)"
+
+		local STATUS_STATUS="$(
+			echo "${OUTPUT_STATUS}" | \
+			jq -r '.status'
+		)"
+
+		case "${STATUS_STATUS}" in
+
+		processing | pending)
+			continue
+			;;
+
+		valid)
+			echo "CertAuth: Success!"
+			return 0
+			;;
+
+		invalid | *)
+			echo "CertAuth: Error, invalid validation!" > /dev/stderr
+			hard_abort "${OUTPUT_STATUS}"
+			;;
+
+		esac
+
+		sleep 1
+	done
 }
 
 # Usage: certificate_order <accountKeyfile> <domainKeyfile>
